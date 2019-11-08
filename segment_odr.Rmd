@@ -15,16 +15,68 @@ This is an R Markdown document. Markdown is a simple formatting syntax for autho
 
 When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
-```{r cars}
-summary(cars)
+Install required libraries
+```{r}
+pacman::p_load(tidyverse,propagate,tidymodels)
+install.packages("C:\\R-pkgs\\src\\onls.tar", repos = NULL, type="source", lib = "C:\\R-pkgs\\lib");
+library(onls, lib.loc = "C:\\R-pkgs\\lib");
 ```
 
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+Load the data
+```{r}
+segment_moe <- data.frame(read_csv("all_segment_moe.csv", col_names = FALSE));
+colnames(segment_moe) <- c("segment", "cambial_age", "radius", "height", "apical_age", "tree");
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Do some analysis...
+```{r}
+#scaleFactor <- 1 # max(segment_moe$segment);
+#xScale <- 1 # max(segment_moe$radius);
+
+pl5 <- function(x) {
+  y <- scaleFactor * (a0 + (a1-a0)/((1+(x/xScale/a2)^a3)^a4));
+  return(y);
+}
+
+#fitmodel <- function(d) onls::onls(segment ~ yscale * (a0 + (a1-a0)/((1+(radius/(a2*xscale))^a3)^a4)), data = d, control = list(maxiter = 150, tol = 1e-08, minFactor = 1/1024,printEval = FALSE, warnOnly = FALSE), start = list(a0 = 10000/yscale, a1 = 2000/yscale, a2 = 100/xscale, a3 = 1, a4 = 3), lower = c(8000/yscale, 3000/yscale, 10/xscale, 0.5, 1), upper = c(26000/yscale, 6000/yscale, 10000/xscale, 50, 100), extend = c(10,10), window = 0.1/xscale)
+
+fitmodel <- function(d) onls::onls(segment ~ (a0 + (a1-a0)/((1+(radius/(a2))^a3)^a4)), data = d, start = list(a0 = 0.5, a1 = 0.1, a2 = 0.5, a3 = 1, a4 = 3), lower = c(0.25, 0.01, 0.02, 1, 1), upper = c(3, 0.3, 2, 50, 100), window = 0.1)
+
+my_radius <- data.frame(radius = c(seq(0, 1, length.out = 50)))
+
+my_predict <- function(mod) predict(mod, newdata = my_radius)
+
+fitted <- segment_moe %>%
+  filter(tree < 5) %>%
+  #filter(height <8000) %>% 
+  group_by(tree, height) %>%
+  filter(n() > 5) %>%
+  mutate(maxsegment = max(segment)) %>% 
+  mutate(maxradius = max(radius)) %>% 
+  mutate(segment = segment/max(segment)) %>% 
+  mutate(radius = radius / max(radius)) %>% 
+  nest() %>% 
+  mutate(mod = map(data, fitmodel),
+         pars = map(mod, tidy),
+         pred = map(mod, ~predict(., newdata = my_radius))) %>%
+  unnest(pred)
+
+
+p <- fitted %>% 
+  mutate(fitx = my_radius$radius) %>% 
+  unnest(., data) %>% 
+  group_by(tree) %>% 
+  ggplot(., aes(group = tree)) + geom_point(aes(x = maxradius*radius, y = maxsegment*segment,colour=factor(tree)), size = 2) +
+  geom_line(aes(x=maxradius*fitx, y=maxsegment*pred, colour = factor(tree))) +
+  facet_wrap(~height)
+
+p
+
+segment_moe %>%
+  filter(n() > 5) %>%
+  #filter(tree < 31) %>%
+  mutate(trial = case_when(tree <= 30 ~ 1,
+                           tree > 30 & tree <= 60 ~ 2,
+                           tree > 60 ~ 3)) %>% 
+  ggplot(aes(x = radius, y = segment), data = .) + geom_point(aes(colour = factor(trial)), size = 3) + facet_wrap(~height)
+```
