@@ -47,7 +47,7 @@ my_radius <- data.frame(radius = c(seq(0, 1, length.out = 50)))
 my_predict <- function(mod) predict(mod, newdata = my_radius)
 
 fitted <- segment_moe %>%
-  filter(tree < 5) %>%
+  filter(tree < 69) %>%
   #filter(height <8000) %>% 
   group_by(tree, height) %>%
   filter(n() > 5) %>%
@@ -57,8 +57,11 @@ fitted <- segment_moe %>%
   mutate(radius = radius / max(radius)) %>% 
   nest() %>% 
   mutate(mod = map(data, fitmodel),
-         pars = map(mod, tidy),
          pred = map(mod, ~predict(., newdata = my_radius))) %>%
+  mutate(conv = mod[[1]]$convInfo$stopCode) %>% 
+  mutate(trial = case_when(tree <= 30 ~ 1,
+                           tree > 30 & tree <= 60 ~ 2,
+                           tree > 60 ~ 3)) %>% 
   unnest(pred)
 
 
@@ -66,6 +69,7 @@ p <- fitted %>%
   mutate(fitx = my_radius$radius) %>% 
   unnest(., data) %>% 
   group_by(tree) %>% 
+  filter(conv == 1) %>% 
   ggplot(., aes(group = tree)) + geom_point(aes(x = maxradius*radius, y = maxsegment*segment,colour=factor(tree)), size = 2) +
   geom_line(aes(x=maxradius*fitx, y=maxsegment*pred, colour = factor(tree))) +
   facet_wrap(~height)
